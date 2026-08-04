@@ -1,0 +1,599 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>모델 학습 이력 대시보드</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #ffffff;
+      --surface: #ffffff;
+      --surface-soft: #f8fafc;
+      --text: #152033;
+      --muted: #65738a;
+      --border: #dbe3ee;
+      --grid: #e7edf4;
+      --accent: #2563eb;
+      --plain: #e8790a;
+      --transformer: #2563eb;
+      --shadow: 0 14px 40px rgba(15, 23, 42, .08);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, "Pretendard", "Noto Sans KR", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    button, select, input { font: inherit; }
+    .page { width: min(1480px, 100%); margin: 0 auto; padding: 28px; }
+    .hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
+    h1 { margin: 0; font-size: clamp(24px, 3vw, 38px); letter-spacing: -.035em; }
+    .subtitle { margin: 8px 0 0; color: var(--muted); font-size: 14px; }
+    .source { color: var(--muted); font-size: 12px; text-align: right; line-height: 1.6; }
+    .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; box-shadow: var(--shadow); }
+    .controls { display: grid; grid-template-columns: minmax(180px, 1.2fr) repeat(4, minmax(150px, 1fr)); gap: 14px; padding: 18px; margin-bottom: 16px; }
+    .control-group { min-width: 0; }
+    .control-title { display: block; margin-bottom: 8px; color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: .02em; }
+    select, input[type="number"] { width: 100%; min-height: 40px; padding: 8px 10px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 10px; outline: none; }
+    select:focus, input:focus, button:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+    .checks { display: flex; min-height: 40px; align-items: center; flex-wrap: wrap; gap: 8px 14px; }
+    label.check { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; font-size: 13px; white-space: nowrap; }
+    input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); }
+    .epoch-inputs { display: grid; grid-template-columns: 1fr 14px 1fr; align-items: center; gap: 8px; }
+    .epoch-inputs span { color: var(--muted); text-align: center; }
+    .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 16px; }
+    .stat { padding: 16px 18px; }
+    .stat-label { color: var(--muted); font-size: 12px; }
+    .stat-value { margin-top: 7px; font-size: clamp(20px, 2.6vw, 30px); font-weight: 750; font-variant-numeric: tabular-nums; letter-spacing: -.025em; }
+    .stat-context { margin-top: 4px; color: var(--muted); font-size: 12px; min-height: 18px; }
+    .chart-panel { position: relative; padding: 18px 18px 10px; }
+    .chart-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 8px; }
+    .chart-title { margin: 0; font-size: 16px; }
+    .legend { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px 15px; min-height: 26px; }
+    .legend-item { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; }
+    .legend-line { width: 24px; border-top: 3px solid var(--series); }
+    .legend-line.val { border-top-style: dashed; }
+    .chart-wrap { position: relative; width: 100%; min-height: 430px; }
+    #chart { display: block; width: 100%; height: 430px; overflow: visible; touch-action: none; }
+    .tooltip {
+      position: absolute;
+      z-index: 5;
+      min-width: 190px;
+      max-width: 280px;
+      padding: 10px 12px;
+      pointer-events: none;
+      color: var(--text);
+      background: color-mix(in srgb, var(--surface) 96%, transparent);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, .14);
+      opacity: 0;
+      transform: translateY(4px);
+      transition: opacity .12s ease, transform .12s ease;
+      font-size: 12px;
+    }
+    .tooltip.show { opacity: 1; transform: translateY(0); }
+    .tooltip-title { margin-bottom: 6px; font-weight: 750; }
+    .tooltip-row { display: grid; grid-template-columns: 10px 1fr auto; align-items: center; gap: 7px; margin-top: 4px; }
+    .tooltip-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--series); }
+    .tooltip-row.val .tooltip-dot { border-radius: 1px; }
+    .tooltip-value { font-variant-numeric: tabular-nums; font-weight: 700; }
+    .empty { display: none; position: absolute; inset: 0; place-items: center; color: var(--muted); font-size: 14px; }
+    .empty.show { display: grid; }
+    .detail-panel { margin-top: 16px; overflow: hidden; }
+    .detail-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+    .detail-head h2 { margin: 0; font-size: 15px; }
+    .hint { color: var(--muted); font-size: 12px; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; min-width: 680px; }
+    th, td { padding: 11px 18px; text-align: left; border-bottom: 1px solid var(--grid); font-size: 13px; }
+    th { color: var(--muted); background: var(--surface-soft); font-size: 12px; }
+    td.number { text-align: right; font-variant-numeric: tabular-nums; }
+    tbody tr:last-child td { border-bottom: 0; }
+    .model-tag { display: inline-flex; align-items: center; gap: 7px; font-weight: 700; }
+    .model-tag::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--series); }
+    .footer { margin: 14px 2px 0; color: var(--muted); font-size: 11px; text-align: right; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+    .grid-line { stroke: var(--grid); stroke-width: 1; vector-effect: non-scaling-stroke; }
+    .axis-line { stroke: var(--border); stroke-width: 1; vector-effect: non-scaling-stroke; }
+    .axis-text { fill: var(--muted); font-size: 11px; }
+    .axis-label { fill: var(--muted); font-size: 11px; font-weight: 700; }
+    .series-path { fill: none; stroke: var(--series); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+    .series-path.val { stroke-dasharray: 7 5; }
+    .focus-line { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 4; vector-effect: non-scaling-stroke; opacity: .7; }
+    .focus-point { fill: var(--surface); stroke: var(--series); stroke-width: 2.5; vector-effect: non-scaling-stroke; }
+    .best-point { fill: var(--series); stroke: var(--surface); stroke-width: 2; vector-effect: non-scaling-stroke; }
+    .plot-overlay { fill: transparent; cursor: crosshair; }
+    @media (max-width: 1050px) {
+      .controls { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 700px) {
+      .page { padding: 16px; }
+      .hero, .chart-head { align-items: flex-start; flex-direction: column; }
+      .source { text-align: left; }
+      .controls { grid-template-columns: 1fr; }
+      .stats { grid-template-columns: 1fr 1fr; gap: 10px; }
+      .legend { justify-content: flex-start; }
+      .chart-wrap, #chart { min-height: 360px; height: 360px; }
+      .chart-panel { padding-inline: 10px; }
+      .stat { padding: 14px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <div>
+        <h1>모델 학습 이력</h1>
+        <p class="subtitle">Plain과 Transformer 모델의 30 epoch 학습·검증 지표 비교</p>
+      </div>
+      <div class="source">Rate R=0.500 · 24RB · SCS 30 kHz<br>데이터: training_history CSV 2개</div>
+    </header>
+
+    <section class="panel controls" aria-label="그래프 표시 설정">
+      <div class="control-group">
+        <label class="control-title" for="metricSelect">표시 지표</label>
+        <select id="metricSelect">
+          <option value="loss">Loss</option>
+          <option value="nmse">NMSE</option>
+          <option value="pilot_nmse">Pilot NMSE</option>
+          <option value="nonpilot_nmse">Non-pilot NMSE</option>
+          <option value="accuracy">Accuracy</option>
+          <option value="learning_rate">Learning rate</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <span class="control-title">모델</span>
+        <div class="checks">
+          <label class="check"><input type="checkbox" name="model" value="Plain" checked> Plain</label>
+          <label class="check"><input type="checkbox" name="model" value="Transformer" checked> Transformer</label>
+        </div>
+      </div>
+      <div class="control-group" id="splitControl">
+        <span class="control-title">데이터 구분</span>
+        <div class="checks">
+          <label class="check"><input type="checkbox" name="split" value="train" checked> Train</label>
+          <label class="check"><input type="checkbox" name="split" value="val" checked> Validation</label>
+        </div>
+      </div>
+      <div class="control-group">
+        <label class="control-title" for="scaleSelect">Y축 스케일</label>
+        <select id="scaleSelect">
+          <option value="linear">선형</option>
+          <option value="log">로그</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <label class="control-title" for="epochStart">Epoch 표시 구간</label>
+        <div class="epoch-inputs">
+          <input id="epochStart" type="number" min="1" max="30" value="1" aria-label="시작 epoch">
+          <span>–</span>
+          <input id="epochEnd" type="number" min="1" max="30" value="30" aria-label="종료 epoch">
+        </div>
+      </div>
+    </section>
+
+    <section class="stats" aria-label="선택 지표 요약">
+      <article class="panel stat"><div class="stat-label" id="stat1Label">Transformer 최종 Validation</div><div class="stat-value" id="stat1Value">–</div><div class="stat-context" id="stat1Context"></div></article>
+      <article class="panel stat"><div class="stat-label" id="stat2Label">Transformer 최적 Validation</div><div class="stat-value" id="stat2Value">–</div><div class="stat-context" id="stat2Context"></div></article>
+      <article class="panel stat"><div class="stat-label" id="stat3Label">Plain 최종 Validation</div><div class="stat-value" id="stat3Value">–</div><div class="stat-context" id="stat3Context"></div></article>
+      <article class="panel stat"><div class="stat-label" id="stat4Label">Plain 최적 Validation</div><div class="stat-value" id="stat4Value">–</div><div class="stat-context" id="stat4Context"></div></article>
+    </section>
+
+    <section class="panel chart-panel">
+      <div class="chart-head">
+        <h2 class="chart-title" id="chartTitle">Loss / Epoch</h2>
+        <div class="legend" id="legend" aria-label="계열 범례"></div>
+      </div>
+      <div class="chart-wrap" id="chartWrap">
+        <svg id="chart" role="img" aria-labelledby="chartTitle chartDesc"></svg>
+        <div id="chartDesc" class="sr-only">선택한 모델과 데이터 구분의 학습 지표를 epoch별 선 그래프로 표시한다.</div>
+        <div class="tooltip" id="tooltip" role="status" aria-live="polite"></div>
+        <div class="empty" id="emptyState">표시할 모델과 데이터 구분을 하나 이상 선택해야 한다.</div>
+      </div>
+    </section>
+
+    <section class="panel detail-panel">
+      <div class="detail-head"><h2 id="detailTitle">Epoch 30 상세 값</h2><span class="hint">그래프 위에서 마우스를 이동하면 갱신된다.</span></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>모델</th><th class="number">Train</th><th class="number">Validation</th><th class="number">차이(Val−Train)</th><th class="number">Learning rate</th></tr></thead>
+          <tbody id="detailBody"></tbody>
+        </table>
+      </div>
+    </section>
+    <p class="footer">CSV 데이터가 HTML 내부에 포함되어 있으므로 인터넷 연결 없이 열 수 있다.</p>
+  </main>
+
+  <script id="csvPlain" type="text/csv">epoch,learning_rate,train_loss,val_loss,train_nmse,val_nmse,train_pilot_nmse,val_pilot_nmse,train_nonpilot_nmse,val_nonpilot_nmse,train_accuracy,val_accuracy
+1,2e-05,1.050986061002694,1.0555862140655519,1.01858698028365,1.0181069042064526,1.0187008647046059,1.0181927151150174,1.0184889011757046,1.0180352500632956,3.0133561596839256,3.0154086416739005
+2,4e-05,1.050106593580807,1.0540928958963465,1.0177937506382762,1.0168409729003907,1.0180396983826083,1.0172387921368635,1.0175629100924224,1.0164561179832177,2.9809436593647876,2.8584286612051506
+3,6.000000000000001e-05,1.0452643514770308,1.0437113866099605,1.0138247142118566,1.0082047186957466,1.0150343532188266,1.010506591796875,1.0126289776571435,1.005915131745515,2.3266899797028184,1.8057629507559316
+4,8e-05,1.023665511031556,1.0116583125679581,0.9952144667681526,0.9800069625289352,0.9991540846481822,0.9856342343930845,0.9912927605124081,0.9743952094184027,2.1149278907526554,3.063157280815972
+5,0.0001,0.9826411316129896,0.9645798842995255,0.9586862202563317,0.9383901412398726,0.9659260170132506,0.9473497856987847,0.9514740409103094,0.9294564367223669,5.0716707436555355,7.02814202202691
+6,9.960967771506667e-05,0.9335977697684095,0.9138282825328685,0.9155284966362848,0.8941882832845052,0.9260912407769097,0.9065099984628183,0.905010511610243,0.881904867666739,9.217857769735499,11.237542136863427
+7,9.844486647586725e-05,0.8799471437074,0.8574398837266145,0.8682442997951133,0.8448476212112992,0.8821284454944087,0.8602291870117188,0.854423985699423,0.8295190712257667,13.7070956201491,15.973133318865742
+8,9.652393605146844e-05,0.8261234048924415,0.8082325424088372,0.8203577896816279,0.8011281557436343,0.8367546350815717,0.8183223780879268,0.8040436588860804,0.7840009646945529,18.329099200878268,20.231860170717592
+9,9.387718066217124e-05,0.7837061820466534,0.7719071097727175,0.7820276577020783,0.7683281849048755,0.7997732364430147,0.7863435476797599,0.7643750239353554,0.7503820094355831,22.0762300219567,23.439862196180556
+10,9.05463412215599e-05,0.7534343958212659,0.7456288589371576,0.7543101990145016,0.744575458102756,0.7726741915434794,0.7628558293095341,0.736043938530816,0.7263683686433015,24.79880514705882,25.77240433304398
+11,8.658394705735987e-05,0.7314393424520306,0.7266208434987951,0.7341825936510672,0.7271556119565611,0.7528563595441432,0.7456473315203631,0.7156067253561581,0.7087362331814236,26.776911764705883,27.487424045138887
+12,8.205248749256015e-05,0.7152226485146417,0.713406052854326,0.7192400724124285,0.7152149002640336,0.7380380667892157,0.7338046518961588,0.7005402788149765,0.6966980150010851,28.250839588439543,28.67320873119213
+13,7.702342635146033e-05,0.703495776076722,0.7030240022694623,0.708441912083844,0.705614821822555,0.7273348261016647,0.7241892609772859,0.6896463790594363,0.6871116412127459,29.316700431474672,29.62088668258102
+14,7.15760749324711e-05,0.6943732608533373,0.6951783488414905,0.7000431015912224,0.6983594795509621,0.7189661960975796,0.7170296506528501,0.6812168674842984,0.6797578345404731,30.147920751633986,30.334988425925925
+15,6.57963412215599e-05,0.6874870147268757,0.6890564723368044,0.6937070739347171,0.6928090300383392,0.7127278107287837,0.7115476255063657,0.6747817873487285,0.674138737431279,30.7719633374183,30.883117042824075
+16,5.977537507199338e-05,0.6819750514217452,0.6842863972981771,0.6886094755284926,0.6885152407045717,0.7076896757238051,0.7072542656792534,0.6696246557298049,0.6698450441713686,31.27777516084559,31.31020091869213
+17,5.360813071670102e-05,0.677796800900129,0.6804898890742549,0.6848123767329197,0.6850029839409723,0.703969331629136,0.70380818967466,0.6657500303181169,0.6662655978732639,31.653528773488564,31.65761140046296
+18,4.739186928329899e-05,0.674205919885947,0.677394704023997,0.6814909771688623,0.6822151438395182,0.700723164876302,0.7011070166693794,0.6623529611226001,0.6633914919252749,31.982176202512253,31.935086082175925
+19,4.1224624928006624e-05,0.6712667147162693,0.6746280773480733,0.6788094255035999,0.6796051194932726,0.6981092405630872,0.6985632522017867,0.6596032595166973,0.6607138061523438,32.24643095128676,32.192420970775466
+20,3.5203658778440106e-05,0.6688524232970343,0.6726743660149751,0.6765383532156352,0.6778307201244212,0.6958716598211551,0.6968423857512297,0.6572978719075521,0.6588862666377315,32.470565448835785,32.36867730034722
+21,2.9423925067528905e-05,0.666928490906759,0.6707405017923426,0.674803546581393,0.6761429059063947,0.6942022126640369,0.6951752358895761,0.6554977038015727,0.6571760785138165,32.643394224877454,32.53529369212963
+22,2.3976573648539656e-05,0.6653739941977208,0.6694165850568701,0.6733368239059947,0.67487383807147,0.6927619844324449,0.6939386099356192,0.6540040518567453,0.6558737917299624,32.787205052593954,32.655910373263886
+23,1.8947512507439858e-05,0.6640884192005482,0.6683967467590615,0.672158360699423,0.6739424811469183,0.6916198550953585,0.6930121273464627,0.6527889476102942,0.6549378402144821,32.9028306908701,32.75225115740741
+24,1.441605294264014e-05,0.6632003924270081,0.6675047470905162,0.6713261842416003,0.673111405549226,0.6908063442255157,0.6922088566532841,0.6519380975860396,0.6540795502839265,32.98581814236111,32.83208441840278
+25,1.0453658778440109e-05,0.6624427318884656,0.6668452001501013,0.6706332796383527,0.6724876799406829,0.6901288200827206,0.6916116728606048,0.6512295053519455,0.653428288212529,33.0540913500817,32.89274215133102
+26,7.122819337828758e-06,0.6619249999601078,0.6665494993880943,0.6701441426993975,0.6722155309606481,0.6896503742691739,0.6913380121301722,0.6507296792821946,0.6531579985441985,33.10120889501634,32.920491536458336
+27,4.476063948531558e-06,0.6615704256101371,0.6662934176127115,0.6698063928940717,0.6719932358353227,0.6893200464186325,0.6911299246328848,0.6503844776028901,0.6529211143211082,33.13522665185866,32.94262297453704
+28,2.5551335241327618e-06,0.6613426486651103,0.666165584369942,0.6695981991836448,0.6718730163574219,0.6891183431787429,0.6910113412362557,0.6501696278690513,0.6527993830928096,33.15543881484886,32.95409324363426
+29,1.3903222849333507e-06,0.6612136199895073,0.666077914679492,0.6694761368495966,0.6717916870117188,0.6889973140542024,0.6909333236129196,0.6500465961531097,0.652714685510706,33.167180287479574,32.96223524305555
+30,1e-06,0.6611470309114145,0.666036268958339,0.6694153051438675,0.6717517824526187,0.6889396657507404,0.6908935292561849,0.6499824992659824,0.6526747244375724,33.17320248672386,32.96612087673611</script>
+
+  <script id="csvTransformer" type="text/csv">epoch,learning_rate,train_loss,val_loss,train_nmse,val_nmse,train_pilot_nmse,val_pilot_nmse,train_nonpilot_nmse,val_nonpilot_nmse,train_accuracy,val_accuracy
+1,2e-05,0.02882428079356555,0.026354926093309014,0.03137715719883738,0.0286523997342145,0.03260822439505384,0.029855068701284904,0.03016341608334211,0.0274628805231165,96.86532322303921,97.13689923321759
+2,4e-05,0.025674829881857424,0.025004397633451,0.028076151118558997,0.027216467415844953,0.02927740651797625,0.028411338064405652,0.02688951062221153,0.026033674699288828,97.19420343137254,97.28003689236111
+3,6.000000000000001e-05,0.025725417974727605,0.02481546262072192,0.028034401812584573,0.027012003616050436,0.029261829276490056,0.028201103740268282,0.026821623160169016,0.02583495263700132,97.19851945465686,97.30139322916666
+4,8e-05,0.02503311640783852,0.024744102532664933,0.027345091252545126,0.026931149341441966,0.028542609806933433,0.02811360032470138,0.026162268258387748,0.025760857264200847,97.26971379697713,97.31299913194445
+5,0.0001,0.024701879371225446,0.024662730536527105,0.026949402428919973,0.026837531637262414,0.028133648517085056,0.02800861597061157,0.025779191310109657,0.025678723653157553,97.31331571691176,97.32772135416667
+6,9.960967771506667e-05,0.024887702149016405,0.02458753234534352,0.027122267492456373,0.026750945691709164,0.02830009354485406,0.02791146163587217,0.025959105959125595,0.02560281815352263,97.30241727941177,97.3439623119213
+7,9.844486647586725e-05,0.024920574958904897,0.024526819978599197,0.02718555780797223,0.02667864993766502,0.028359895593979778,0.027825275880319102,0.026025736067030163,0.025544501763802987,97.30279743668301,97.35569227430555
+8,9.652393605146844e-05,0.024775057043515,0.024478068442808257,0.027071588553634344,0.0266233797426577,0.02822879809959262,0.02776482105255127,0.025928536209405637,0.025494472009164316,97.32039317810458,97.36856626157407
+9,9.387718066217124e-05,0.024439979438590848,0.024440686145314465,0.026754356957728567,0.02657893896102905,0.027902538947809755,0.027712045245700413,0.025620827643699894,0.0254584092564053,97.35621655433006,97.37559751157407
+10,9.05463412215599e-05,0.024662226778911608,0.0244113421495314,0.026822144564460304,0.026546499994066025,0.0279713122673284,0.027677510402820727,0.02568725143382752,0.025428096276742442,97.35340635212418,97.38408854166667
+11,8.658394705735987e-05,0.02456496238708496,0.024388418009987582,0.02675361521103803,0.02652049364867034,0.027894719192405153,0.027648852048096834,0.025627038993087468,0.02540476781350595,97.36341962826798,97.3903540943287
+12,8.205248749256015e-05,0.02475839029486273,0.024366486817598343,0.02696878782284805,0.026495670565852412,0.02812008421405468,0.02762113341578731,0.025832288156147874,0.02538285590984203,97.34470588235294,97.39502133969907
+13,7.702342635146033e-05,0.02432239939915199,0.024350756773794138,0.026543990365819992,0.02647978455932052,0.027678097556619083,0.027606896382791023,0.02542482020808201,0.02536532481511434,97.38803896037582,97.40148582175927
+14,7.15760749324711e-05,0.024667142552682778,0.024328520135195167,0.026918107076408036,0.02645195448840106,0.028056749518400703,0.027571565045250785,0.02579392059176576,0.02534500722531919,97.35383986928105,97.4016138599537
+15,6.57963412215599e-05,0.02473604271176204,0.024307312449371375,0.026920800614201164,0.02642738342285156,0.028061924728692747,0.02754313557236283,0.025794657538918887,0.025324305340095804,97.35489149305556,97.40464482060185
+16,5.977537507199338e-05,0.024335179215455367,0.0242865169407041,0.026498716080110837,0.02640398043173331,0.027622864791770386,0.027517619132995604,0.025389035792132607,0.025303011735280354,97.39674555759804,97.40744104456019
+17,5.360813071670102e-05,0.024449880892057824,0.024265123384970205,0.02661605217877556,0.026377934349907768,0.02774183435377732,0.02748634108790645,0.025504451888838625,0.025282196027261238,97.38658752042484,97.4080859375
+18,4.739186928329899e-05,0.024738912075465802,0.024237699864639178,0.026984780006159365,0.026350444511131003,0.028123742396535437,0.027461308196738914,0.02586047802096099,0.02525222725338406,97.35082337622549,97.41463433159723
+19,4.1224624928006624e-05,0.024525556096843645,0.024206852308577963,0.02675876474068835,0.026318730071738915,0.02788558716867484,0.02743150993629738,0.02564635819079829,0.025218571380332663,97.37417151756536,97.41975658275463
+20,3.5203658778440106e-05,0.024338225015725187,0.024171477917719772,0.026493970708909378,0.026279439043115686,0.027619127323424895,0.027389281060960557,0.025383252287222668,0.0251822061891909,97.40053640727125,97.42314199942129
+21,2.9423925067528905e-05,0.024280688644332044,0.024128423426990155,0.02640555668500514,0.026236764589945474,0.027526851479524102,0.027351961312470613,0.025298766279532238,0.025134125462284794,97.40943040236928,97.43053493923611
+22,2.3976573648539656e-05,0.024372291618507673,0.024080534425598602,0.026572548673043844,0.026183413576196742,0.027703721912857755,0.027294466937029804,0.025456256804123424,0.02508489070115266,97.39426164215686,97.43314236111111
+23,1.8947512507439858e-05,0.024470353912489088,0.024031091909165737,0.026689920238420074,0.026133689085642498,0.027828532574223536,0.027249327059145328,0.02556630832697052,0.025030526055230033,97.38259446486929,97.44059461805556
+24,1.441605294264014e-05,0.024200362717501478,0.023986855875010843,0.026315848468955048,0.026084147029452855,0.0274394122603672,0.027195596783249468,0.025206873338986066,0.024985150231255426,97.41997625612746,97.44163266782408
+25,1.0453658778440109e-05,0.02438299689904537,0.023945021546549268,0.026549420200921353,0.02604436450534397,0.027677878149194656,0.027163537696555808,0.02543599695941202,0.024937577600832338,97.39665339052287,97.45003074363426
+26,7.122819337828758e-06,0.02417768710238092,0.023915122631523344,0.02636793367223802,0.026012151329605666,0.027486685459909874,0.02713061456327085,0.025263840357462566,0.02490605036417643,97.41454350490196,97.45174949363425
+27,4.476063948531558e-06,0.024425287141032467,0.023894725190820518,0.02663844202079025,0.025991479997281675,0.027770292930353702,0.027111786471472846,0.025521549337050493,0.02488350620976201,97.38796951593137,97.45406394675926
+28,2.5551335241327618e-06,0.024423125840577424,0.023883612550519132,0.026582467072929432,0.025979806493829798,0.027709199057685003,0.027100251692312734,0.02547074024973352,0.024871685946429217,97.3937619995915,97.45503870081019
+29,1.3903222849333507e-06,0.02406148678483137,0.023878312916667373,0.026229936313005835,0.02597260210249159,0.027350262161952996,0.027090380280106154,0.02512438163258671,0.024867155110394515,97.42861085580066,97.45415002893519
+30,1e-06,0.024211697921254275,0.0238729217344964,0.026373183493520698,0.025968054312246816,0.02749828943240097,0.027087818516625298,0.025262700747820287,0.024860607782999675,97.41391365400327,97.4557837818287</script>
+
+  <script>
+    (() => {
+      "use strict";
+      const NS = "http://www.w3.org/2000/svg";
+      const metricMeta = {
+        loss: { label: "Loss", unit: "", better: "min" },
+        nmse: { label: "NMSE", unit: "", better: "min" },
+        pilot_nmse: { label: "Pilot NMSE", unit: "", better: "min" },
+        nonpilot_nmse: { label: "Non-pilot NMSE", unit: "", better: "min" },
+        accuracy: { label: "Accuracy", unit: "%", better: "max" },
+        learning_rate: { label: "Learning rate", unit: "", better: "max" }
+      };
+      const modelColors = { Plain: "var(--plain)", Transformer: "var(--transformer)" };
+      const parseCsv = (text) => {
+        const lines = text.trim().split(/\r?\n/);
+        const headers = lines.shift().split(",");
+        return lines.map(line => {
+          const values = line.split(",").map(Number);
+          return Object.fromEntries(headers.map((header, index) => [header, values[index]]));
+        });
+      };
+      const data = {
+        Plain: parseCsv(document.getElementById("csvPlain").textContent),
+        Transformer: parseCsv(document.getElementById("csvTransformer").textContent)
+      };
+
+      const el = {
+        metric: document.getElementById("metricSelect"),
+        scale: document.getElementById("scaleSelect"),
+        splitControl: document.getElementById("splitControl"),
+        start: document.getElementById("epochStart"),
+        end: document.getElementById("epochEnd"),
+        chart: document.getElementById("chart"),
+        wrap: document.getElementById("chartWrap"),
+        tooltip: document.getElementById("tooltip"),
+        empty: document.getElementById("emptyState"),
+        title: document.getElementById("chartTitle"),
+        legend: document.getElementById("legend"),
+        detailTitle: document.getElementById("detailTitle"),
+        detailBody: document.getElementById("detailBody")
+      };
+      let plotState = null;
+
+      const svgNode = (name, attributes = {}, text = "") => {
+        const node = document.createElementNS(NS, name);
+        for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
+        if (text) node.textContent = text;
+        return node;
+      };
+      const selected = (name) => [...document.querySelectorAll(`input[name="${name}"]:checked`)].map(input => input.value);
+      const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+      const format = (value, metric = el.metric.value) => {
+        if (!Number.isFinite(value)) return "–";
+        if (metric === "accuracy") return `${value.toFixed(3)}%`;
+        if (metric === "learning_rate" || Math.abs(value) < 0.001) return value.toExponential(3);
+        if (Math.abs(value) >= 100) return value.toFixed(2);
+        if (Math.abs(value) >= 1) return value.toFixed(4);
+        return value.toFixed(6);
+      };
+      const tickFormat = (value, metric = el.metric.value) => {
+        if (metric === "accuracy") return `${value.toFixed(value >= 10 ? 0 : 1)}%`;
+        if (metric === "learning_rate" || Math.abs(value) < 0.001) return value.toExponential(1);
+        if (Math.abs(value) >= 10) return value.toFixed(0);
+        if (Math.abs(value) >= 1) return value.toFixed(2);
+        return value.toFixed(3);
+      };
+      const metricKey = (split) => el.metric.value === "learning_rate" ? "learning_rate" : `${split}_${el.metric.value}`;
+
+      function getSeries() {
+        const models = selected("model");
+        const splits = el.metric.value === "learning_rate" ? ["schedule"] : selected("split");
+        const start = Number(el.start.value);
+        const end = Number(el.end.value);
+        const result = [];
+        models.forEach(model => splits.forEach(split => {
+          const key = metricKey(split);
+          result.push({
+            model,
+            split,
+            key,
+            label: el.metric.value === "learning_rate" ? model : `${model} · ${split === "train" ? "Train" : "Validation"}`,
+            color: modelColors[model],
+            values: data[model].filter(row => row.epoch >= start && row.epoch <= end).map(row => ({ epoch: row.epoch, value: row[key], raw: row }))
+          });
+        }));
+        return result;
+      }
+
+      function normalizeEpochs() {
+        let start = Math.max(1, Math.min(30, Math.round(Number(el.start.value) || 1)));
+        let end = Math.max(1, Math.min(30, Math.round(Number(el.end.value) || 30)));
+        if (start > end) [start, end] = [end, start];
+        el.start.value = start;
+        el.end.value = end;
+      }
+
+      function niceLinearDomain(values) {
+        let min = Math.min(...values);
+        let max = Math.max(...values);
+        if (min === max) {
+          const pad = Math.abs(min || 1) * .08;
+          return [min - pad, max + pad];
+        }
+        const span = max - min;
+        const pad = span * .09;
+        min -= pad;
+        max += pad;
+        if (el.metric.value === "accuracy") {
+          min = Math.max(0, min);
+          max = Math.min(100, max);
+        } else if (min > 0 && min - pad < 0) {
+          min = 0;
+        }
+        return [min, max];
+      }
+
+      function renderLegend(series) {
+        el.legend.innerHTML = "";
+        series.forEach(item => {
+          const wrapper = document.createElement("span");
+          wrapper.className = "legend-item";
+          const line = document.createElement("span");
+          line.className = `legend-line${item.split === "val" ? " val" : ""}`;
+          line.style.setProperty("--series", item.color);
+          wrapper.append(line, document.createTextNode(item.label));
+          el.legend.appendChild(wrapper);
+        });
+      }
+
+      function renderStats() {
+        const metric = el.metric.value;
+        const meta = metricMeta[metric];
+        ["Transformer", "Plain"].forEach((model, modelIndex) => {
+          const key = metric === "learning_rate" ? "learning_rate" : `val_${metric}`;
+          const rows = data[model];
+          const last = rows.at(-1);
+          const best = rows.reduce((candidate, row) => {
+            if (meta.better === "max") return row[key] > candidate[key] ? row : candidate;
+            return row[key] < candidate[key] ? row : candidate;
+          }, rows[0]);
+          const firstCard = modelIndex * 2 + 1;
+          const secondCard = firstCard + 1;
+          const splitLabel = metric === "learning_rate" ? "최종" : "최종 Validation";
+          const bestLabel = metric === "learning_rate" ? "최대" : "최적 Validation";
+          document.getElementById(`stat${firstCard}Label`).textContent = `${model} ${splitLabel}`;
+          document.getElementById(`stat${firstCard}Value`).textContent = format(last[key], metric);
+          document.getElementById(`stat${firstCard}Context`).textContent = `Epoch ${last.epoch}`;
+          document.getElementById(`stat${secondCard}Label`).textContent = `${model} ${bestLabel}`;
+          document.getElementById(`stat${secondCard}Value`).textContent = format(best[key], metric);
+          document.getElementById(`stat${secondCard}Context`).textContent = `Epoch ${best.epoch}`;
+        });
+      }
+
+      function updateDetail(epoch) {
+        const metric = el.metric.value;
+        el.detailTitle.textContent = `Epoch ${epoch} 상세 값 · ${metricMeta[metric].label}`;
+        el.detailBody.innerHTML = "";
+        selected("model").forEach(model => {
+          const row = data[model].find(item => item.epoch === epoch);
+          if (!row) return;
+          const train = metric === "learning_rate" ? row.learning_rate : row[`train_${metric}`];
+          const val = metric === "learning_rate" ? row.learning_rate : row[`val_${metric}`];
+          const tr = document.createElement("tr");
+          tr.innerHTML = `<td><span class="model-tag" style="--series:${modelColors[model]}">${model}</span></td><td class="number">${format(train, metric)}</td><td class="number">${metric === "learning_rate" ? "–" : format(val, metric)}</td><td class="number">${metric === "learning_rate" ? "–" : format(val - train, metric)}</td><td class="number">${format(row.learning_rate, "learning_rate")}</td>`;
+          el.detailBody.appendChild(tr);
+        });
+        if (!el.detailBody.children.length) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = '<td colspan="5">선택된 모델이 없다.</td>';
+          el.detailBody.appendChild(tr);
+        }
+      }
+
+      function renderChart() {
+        normalizeEpochs();
+        const series = getSeries();
+        el.chart.innerHTML = "";
+        el.tooltip.classList.remove("show");
+        el.empty.classList.toggle("show", series.length === 0);
+        const meta = metricMeta[el.metric.value];
+        el.title.textContent = `${meta.label} / Epoch`;
+        el.splitControl.style.opacity = el.metric.value === "learning_rate" ? ".45" : "1";
+        el.splitControl.querySelectorAll("input").forEach(input => input.disabled = el.metric.value === "learning_rate");
+        renderLegend(series);
+        renderStats();
+        updateDetail(Number(el.end.value));
+        if (!series.length || !series.some(item => item.values.length)) {
+          plotState = null;
+          return;
+        }
+
+        const width = Math.max(320, Math.floor(el.wrap.getBoundingClientRect().width));
+        const height = el.chart.clientHeight || 430;
+        const margin = { top: 18, right: 24, bottom: 54, left: width < 560 ? 66 : 78 };
+        const plotWidth = width - margin.left - margin.right;
+        const plotHeight = height - margin.top - margin.bottom;
+        const allPoints = series.flatMap(item => item.values);
+        const start = Math.min(...allPoints.map(point => point.epoch));
+        const end = Math.max(...allPoints.map(point => point.epoch));
+        const scaleType = el.scale.value;
+        let domain;
+        if (scaleType === "log") {
+          const positives = allPoints.map(point => point.value).filter(value => value > 0);
+          domain = [Math.min(...positives), Math.max(...positives)];
+          if (domain[0] === domain[1]) domain = [domain[0] / 1.2, domain[1] * 1.2];
+          else {
+            const logMin = Math.log10(domain[0]);
+            const logMax = Math.log10(domain[1]);
+            const pad = (logMax - logMin) * .06;
+            domain = [Math.pow(10, logMin - pad), Math.pow(10, logMax + pad)];
+          }
+        } else {
+          domain = niceLinearDomain(allPoints.map(point => point.value));
+        }
+        const x = epoch => margin.left + (end === start ? plotWidth / 2 : (epoch - start) / (end - start) * plotWidth);
+        const transformY = value => scaleType === "log" ? Math.log10(value) : value;
+        const minY = transformY(domain[0]);
+        const maxY = transformY(domain[1]);
+        const y = value => margin.top + (maxY - transformY(value)) / (maxY - minY) * plotHeight;
+        el.chart.setAttribute("viewBox", `0 0 ${width} ${height}`);
+
+        const yTicks = 5;
+        for (let i = 0; i <= yTicks; i++) {
+          const ratio = i / yTicks;
+          const py = margin.top + ratio * plotHeight;
+          const tickValue = scaleType === "log" ? Math.pow(10, maxY - ratio * (maxY - minY)) : domain[1] - ratio * (domain[1] - domain[0]);
+          el.chart.appendChild(svgNode("line", { x1: margin.left, y1: py, x2: width - margin.right, y2: py, class: "grid-line" }));
+          el.chart.appendChild(svgNode("text", { x: margin.left - 10, y: py + 4, "text-anchor": "end", class: "axis-text" }, tickFormat(tickValue)));
+        }
+        const xTickCount = Math.min(6, end - start || 1);
+        const epochs = [...new Set(Array.from({ length: xTickCount + 1 }, (_, i) => Math.round(start + i * (end - start) / xTickCount)))];
+        epochs.forEach(epoch => {
+          const px = x(epoch);
+          el.chart.appendChild(svgNode("line", { x1: px, y1: margin.top, x2: px, y2: margin.top + plotHeight, class: "grid-line" }));
+          el.chart.appendChild(svgNode("text", { x: px, y: height - 25, "text-anchor": "middle", class: "axis-text" }, String(epoch)));
+        });
+        el.chart.appendChild(svgNode("line", { x1: margin.left, y1: margin.top + plotHeight, x2: width - margin.right, y2: margin.top + plotHeight, class: "axis-line" }));
+        el.chart.appendChild(svgNode("text", { x: margin.left + plotWidth / 2, y: height - 4, "text-anchor": "middle", class: "axis-label" }, "Epoch"));
+        const yLabel = svgNode("text", { x: 15, y: margin.top + plotHeight / 2, transform: `rotate(-90 15 ${margin.top + plotHeight / 2})`, "text-anchor": "middle", class: "axis-label" }, `${meta.label}${meta.unit ? ` (${meta.unit})` : ""}${scaleType === "log" ? " · log" : ""}`);
+        el.chart.appendChild(yLabel);
+
+        series.forEach(item => {
+          const path = item.values.map((point, index) => `${index ? "L" : "M"}${x(point.epoch).toFixed(2)},${y(point.value).toFixed(2)}`).join(" ");
+          const pathNode = svgNode("path", { d: path, class: `series-path${item.split === "val" ? " val" : ""}`, style: `--series:${item.color}` });
+          el.chart.appendChild(pathNode);
+          if (item.split === "val" || item.split === "schedule") {
+            const comparator = meta.better === "max" ? (a, b) => a.value > b.value : (a, b) => a.value < b.value;
+            const best = item.values.reduce((candidate, point) => comparator(point, candidate) ? point : candidate, item.values[0]);
+            el.chart.appendChild(svgNode("circle", { cx: x(best.epoch), cy: y(best.value), r: 4, class: "best-point", style: `--series:${item.color}` }));
+          }
+        });
+
+        const focusGroup = svgNode("g", { visibility: "hidden" });
+        const focusLine = svgNode("line", { y1: margin.top, y2: margin.top + plotHeight, class: "focus-line" });
+        focusGroup.appendChild(focusLine);
+        const focusPoints = series.map(item => {
+          const point = svgNode("circle", { r: 4, class: "focus-point", style: `--series:${item.color}` });
+          focusGroup.appendChild(point);
+          return point;
+        });
+        el.chart.appendChild(focusGroup);
+        const overlay = svgNode("rect", { x: margin.left, y: margin.top, width: plotWidth, height: plotHeight, class: "plot-overlay", "aria-label": "그래프 탐색 영역" });
+        el.chart.appendChild(overlay);
+        plotState = { series, start, end, x, y, margin, plotWidth, plotHeight, focusGroup, focusLine, focusPoints, overlay };
+
+        const showEpoch = (epoch, clientX, clientY) => {
+          const nearestEpoch = Math.max(start, Math.min(end, Math.round(epoch)));
+          const px = x(nearestEpoch);
+          focusGroup.setAttribute("visibility", "visible");
+          focusLine.setAttribute("x1", px);
+          focusLine.setAttribute("x2", px);
+          const rows = [];
+          series.forEach((item, index) => {
+            const point = item.values.find(candidate => candidate.epoch === nearestEpoch);
+            if (!point) return;
+            focusPoints[index].setAttribute("cx", px);
+            focusPoints[index].setAttribute("cy", y(point.value));
+            rows.push(`<div class="tooltip-row${item.split === "val" ? " val" : ""}" style="--series:${item.color}"><span class="tooltip-dot"></span><span>${item.label}</span><span class="tooltip-value">${format(point.value)}</span></div>`);
+          });
+          el.tooltip.innerHTML = `<div class="tooltip-title">Epoch ${nearestEpoch}</div>${rows.join("")}`;
+          el.tooltip.classList.add("show");
+          const wrapRect = el.wrap.getBoundingClientRect();
+          const fallbackX = wrapRect.left + px;
+          const fallbackY = wrapRect.top + margin.top + 24;
+          const pointerX = Number.isFinite(clientX) ? clientX : fallbackX;
+          const pointerY = Number.isFinite(clientY) ? clientY : fallbackY;
+          const tooltipWidth = el.tooltip.offsetWidth;
+          const tooltipHeight = el.tooltip.offsetHeight;
+          let left = pointerX - wrapRect.left + 14;
+          let top = pointerY - wrapRect.top - tooltipHeight / 2;
+          if (left + tooltipWidth > wrapRect.width - 8) left = pointerX - wrapRect.left - tooltipWidth - 14;
+          left = Math.max(6, Math.min(wrapRect.width - tooltipWidth - 6, left));
+          top = Math.max(6, Math.min(wrapRect.height - tooltipHeight - 6, top));
+          el.tooltip.style.left = `${left}px`;
+          el.tooltip.style.top = `${top}px`;
+          updateDetail(nearestEpoch);
+        };
+        overlay.addEventListener("pointermove", event => {
+          const rect = el.chart.getBoundingClientRect();
+          const svgX = (event.clientX - rect.left) / rect.width * width;
+          const epoch = start + (svgX - margin.left) / plotWidth * (end - start);
+          showEpoch(epoch, event.clientX, event.clientY);
+        });
+        overlay.addEventListener("pointerleave", () => {
+          focusGroup.setAttribute("visibility", "hidden");
+          el.tooltip.classList.remove("show");
+          updateDetail(Number(el.end.value));
+        });
+        overlay.addEventListener("click", event => {
+          const rect = el.chart.getBoundingClientRect();
+          const svgX = (event.clientX - rect.left) / rect.width * width;
+          showEpoch(start + (svgX - margin.left) / plotWidth * (end - start), event.clientX, event.clientY);
+        });
+      }
+
+      [el.metric, el.scale, el.start, el.end, ...document.querySelectorAll('input[type="checkbox"]')].forEach(control => {
+        control.addEventListener("change", renderChart);
+      });
+      const observer = new ResizeObserver(() => renderChart());
+      observer.observe(el.wrap);
+      renderChart();
+    })();
+  </script>
+</body>
+</html>
